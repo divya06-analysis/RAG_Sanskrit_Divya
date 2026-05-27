@@ -2,74 +2,216 @@ from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
 import pickle
-from pypdf import PdfReader
+import fitz
+import re
+import logging
 import os
 
+# -----------------------------------
+# Create logs folder
+# -----------------------------------
+os.makedirs("logs", exist_ok=True)
 
-# -----------------------------
-# Load PDF safely
-# -----------------------------
-def load_pdf(path):
-    reader = PdfReader(path)
-    text = ""
+# -----------------------------------
+# Logging
+# -----------------------------------
+logging.basicConfig(
+    filename="logs/ingest.log",
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
-    for page in reader.pages:
-        page_text = page.extract_text()
-        if page_text:
-            text += page_text + "\n"
+# -----------------------------------
+# Load Embedding Model
+# -----------------------------------
+try:
 
-    return text
+    print("Loading embedding model...")
 
-
-# -----------------------------
-# Main pipeline
-# -----------------------------
-def main():
-
-    file_path = r"data\Rag-docs.pdf"
-
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"File not found: {file_path}")
-
-    # Load file
-    text = load_pdf(file_path)
-    print("Text Loaded Successfully")
-
-    # Clean chunks
-    chunks = [t.strip() for t in text.split("\n") if t.strip()]
-    print("Chunks Created:", len(chunks))
-
-    if len(chunks) == 0:
-        raise ValueError("No text extracted from PDF!")
-
-    # Load embedding model
-    model = SentenceTransformer(
+    embedding_model = SentenceTransformer(
         "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     )
-    print("Embedding Model Loaded")
 
-    # Create embeddings
-    embeddings = model.encode(chunks)
-    embeddings = np.array(embeddings).astype("float32")
+    print("Embedding model loaded")
 
-    # FAISS index
-    index = faiss.IndexFlatL2(embeddings.shape[1])
-    index.add(embeddings)
+except Exception as e:
 
-    print("FAISS Index Created")
+    print("Embedding model error:", e)
+    exit()
 
-    # Save index
-    faiss.write_index(index, "sanskrit_index.faiss")
+# -----------------------------------
+# PDF Path
+# -----------------------------------
+pdf_path = "data/Rag-docs.pdf"
 
-    # Save chunks
-    with open("chunks.pkl", "wb") as f:
-        pickle.dump(chunks, f)
+# -----------------------------------
+# Read PDF
+# -----------------------------------
+try:
 
-    print("All Files Saved Successfully")
+    print("Reading PDF...")
 
+    doc = fitz.open(pdf_path)
 
-# -----------------------------
-# Run
-# -----------------------------
-if __name__ == "__main__":
-    main()
+    text = ""
+
+    for page in doc:
+
+        page_text = page.get_text()
+
+        text += page_text + "\n"
+
+    print("PDF text extracted")
+
+except Exception as e:
+
+    print("PDF reading error:", e)
+    exit()
+
+# -----------------------------------
+# Sanskrit Cleaning Function
+# -----------------------------------
+def clean_sanskrit_text(text):
+
+    # remove English translations
+    text = re.sub(r"\(.*?\)", " ", text)
+
+    # remove emails
+    text = re.sub(r"\S+@\S+", " ", text)
+
+    # remove latin text
+    text = re.sub(r"[A-Za-z]+", " ", text)
+
+    # normalize spaces
+    text = re.sub(r"\s+", " ", text)
+
+    # OCR cleanup
+    replacements = {
+
+        "र्ो": "को",
+        "र्रो": "करो",
+        "र्ृ": "कृ",
+        "तर्ं": "किं",
+        "बार्": "बाध",
+        "र्ायक": "कार्य",
+        "भर्": "भव",
+        "र्क": "क",
+        "र्ु": "कु",
+        "र्ि": "यदि",
+        "िदा": "तदा",
+        "ििः": "ततः",
+        "िस्य": "तस्य",
+        "िेन": "तेन",
+        "अिः": "अतः",
+        "चिुर": "चतुर",
+        "र्ालीदास": "कालीदास",
+        "शर्करा": "शर्करा",
+    }
+
+    for wrong, correct in replacements.items():
+
+        text = text.replace(wrong, correct)
+
+    # keep Sanskrit chars only
+    text = re.sub(
+        r"[^ऀ-ॿ\s।॥]",
+        " ",
+        text
+    )
+
+    # remove extra spaces
+    text = re.sub(r"\s+", " ", text)
+
+    return text.strip()
+
+# -----------------------------------
+# Clean Text
+# -----------------------------------
+print("Cleaning Sanskrit text...")
+
+text = clean_sanskrit_text(text)
+
+print("Text cleaned")
+
+# -----------------------------------
+# Save cleaned text
+# -----------------------------------
+with open("cleaned_text.txt", "w", encoding="utf-8") as f:
+
+    f.write(text)
+
+print("Cleaned text saved")
+
+# -----------------------------------
+# Chunking
+# -----------------------------------
+print("Creating chunks...")
+
+sentences = text.split("।")
+
+chunks = []
+
+chunk = ""
+
+for sentence in sentences:
+
+    sentence = sentence.strip()
+
+    if len(sentence) < 10:
+        continue
+
+    if len(chunk) + len(sentence) < 350:
+
+        chunk += sentence + "। "
+
+    else:
+
+        chunks.append(chunk.strip())
+
+        chunk = sentence + "। "
+
+if chunk:
+    chunks.append(chunk.strip())
+
+print(f"Total chunks: {len(chunks)}")
+
+# -----------------------------------
+# Generate Embeddings
+# -----------------------------------
+print("Generating embeddings...")
+
+embeddings = embedding_model.encode(
+    chunks,
+    show_progress_bar=True
+)
+
+embeddings = np.array(embeddings).astype("float32")
+
+print("Embeddings generated")
+
+# -----------------------------------
+# Create FAISS Index
+# -----------------------------------
+dimension = embeddings.shape[1]
+
+index = faiss.IndexFlatL2(dimension)
+
+index.add(embeddings)
+
+print("FAISS index created")
+
+# -----------------------------------
+# Save Index
+# -----------------------------------
+faiss.write_index(index, "sanskrit_index.faiss")
+
+# -----------------------------------
+# Save Chunks
+# -----------------------------------
+with open("chunks.pkl", "wb") as f:
+
+    pickle.dump(chunks, f)
+
+print("Chunks saved")
+
+print("\n===== INGESTION COMPLETED =====")
