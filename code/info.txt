@@ -1,1 +1,13 @@
+The system follows a modular RAG architecture where embedding generation, storage, and retrieval are handled dynamically within the ingestion and pipeline scripts, ensuring simplicity, efficiency, and reproducibility.
 
+In my project, I have not created a separate file for embeddings or vector storage because everything is handled inside the main ingestion process (ingest.py).
+
+When the project runs, it first reads the PDF file and breaks the text into small parts (chunks). After that, these chunks are converted into embeddings using a pre-trained model. These embeddings are not saved as a separate file. Instead, they are stored inside a FAISS index, which is a special structure used for fast searching.
+
+So basically:
+
+The embeddings are created automatically when I run ingest.py
+They are stored inside the FAISS index file
+This index is then used later to find relevant text when a user asks a question
+
+This approach is simple and efficient because I don’t need to manage extra embedding files separately. Everything is generated and used automatically in the pipeline.
