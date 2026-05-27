@@ -2,37 +2,74 @@ from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
 import pickle
+from pypdf import PdfReader
+import os
 
-# Load file
-with open(r"data\knowledge.txt", "r", encoding="utf-8") as f:
-    text = f.read()
 
-print("Text Loaded Successfully")
+# -----------------------------
+# Load PDF safely
+# -----------------------------
+def load_pdf(path):
+    reader = PdfReader(path)
+    text = ""
 
-# Split into lines (chunks)
-chunks = [t.strip() for t in text.split("\n") if t.strip()]
+    for page in reader.pages:
+        page_text = page.extract_text()
+        if page_text:
+            text += page_text + "\n"
 
-print("Chunks Created:", len(chunks))
+    return text
 
-# Embedding model
-model = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 
-print("Embedding Model Loaded")
+# -----------------------------
+# Main pipeline
+# -----------------------------
+def main():
 
-# Create embeddings
-embeddings = model.encode(chunks)
-embeddings = np.array(embeddings).astype("float32")
+    file_path = r"data\Rag-docs.pdf"
 
-# FAISS index
-index = faiss.IndexFlatL2(embeddings.shape[1])
-index.add(embeddings)
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
 
-print("FAISS Index Created")
+    # Load file
+    text = load_pdf(file_path)
+    print("Text Loaded Successfully")
 
-# Save index + chunks
-faiss.write_index(index, "sanskrit_index.faiss")
+    # Clean chunks
+    chunks = [t.strip() for t in text.split("\n") if t.strip()]
+    print("Chunks Created:", len(chunks))
 
-with open("chunks.pkl", "wb") as f:
-    pickle.dump(chunks, f)
+    if len(chunks) == 0:
+        raise ValueError("No text extracted from PDF!")
 
-print("All Files Saved Successfully")
+    # Load embedding model
+    model = SentenceTransformer(
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    )
+    print("Embedding Model Loaded")
+
+    # Create embeddings
+    embeddings = model.encode(chunks)
+    embeddings = np.array(embeddings).astype("float32")
+
+    # FAISS index
+    index = faiss.IndexFlatL2(embeddings.shape[1])
+    index.add(embeddings)
+
+    print("FAISS Index Created")
+
+    # Save index
+    faiss.write_index(index, "sanskrit_index.faiss")
+
+    # Save chunks
+    with open("chunks.pkl", "wb") as f:
+        pickle.dump(chunks, f)
+
+    print("All Files Saved Successfully")
+
+
+# -----------------------------
+# Run
+# -----------------------------
+if __name__ == "__main__":
+    main()
