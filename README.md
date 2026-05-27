@@ -1,11 +1,11 @@
-# 📘 Sanskrit RAG System
+#  Sanskrit RAG System
 
-## 🚀 Overview
+## Overview
 This project is a Retrieval-Augmented Generation (RAG) system for Sanskrit Question Answering using FAISS + Transformer-based LLM.
 
 ---
 
-## ⚙️ Tech Stack
+## Tech Stack
 - Python
 - Streamlit
 - FAISS
@@ -15,7 +15,7 @@ This project is a Retrieval-Augmented Generation (RAG) system for Sanskrit Quest
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 code/ → Implementation files
 data/ → Sanskrit PDF dataset
@@ -24,7 +24,7 @@ report/ → Project report
 
 ---
 
-## 🚀 How to Run
+## How to Run
 
 ### 1. Install dependencies
 
@@ -48,7 +48,7 @@ streamlit run code/app.py
 
 ---
 
-## 🧠 Features
+## Features
 - PDF-based knowledge ingestion
 - FAISS vector search
 - Semantic retrieval
@@ -57,11 +57,11 @@ streamlit run code/app.py
 
 ---
 
-## 📊 Output
+## Output
 - Context retrieval from Sanskrit text
 - Generated answers using LLM
 
 ---
 
-## 👨‍💻 Author
+## Author
 Divya Ikhar
