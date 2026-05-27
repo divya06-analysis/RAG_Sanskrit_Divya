@@ -1,115 +1,201 @@
-import streamlit as st
-from sentence_transformers import SentenceTransformer
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+import re
 import faiss
 import pickle
 import numpy as np
+import streamlit as st
+from sentence_transformers import SentenceTransformer
 
-# ---------------------------
-# LOAD MODELS
-# ---------------------------
+# -----------------------------------
+# Streamlit Page
+# -----------------------------------
+st.set_page_config(
+    page_title="Sanskrit RAG System",
+    page_icon="📚",
+    layout="centered"
+)
+
+st.title("📚 Sanskrit RAG System")
+st.write("Ask questions from Sanskrit documents")
+
+# -----------------------------------
+# Text Cleaning Function
+# -----------------------------------
+def clean_text(text):
+
+    text = text.replace("\n", " ")
+
+    text = re.sub(r"\s+", " ", text)
+
+    text = re.sub(
+        r"[^ऀ-ॿa-zA-Z0-9\s।॥]",
+        "",
+        text
+    )
+
+    return text.strip()
+
+# -----------------------------------
+# Load Embedding Model
+# -----------------------------------
 @st.cache_resource
-def load_models():
-    embedding_model = SentenceTransformer(
+def load_model():
+
+    model = SentenceTransformer(
         "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     )
+
+    return model
+
+# -----------------------------------
+# Load FAISS + Chunks
+# -----------------------------------
+@st.cache_resource
+def load_data():
 
     index = faiss.read_index("sanskrit_index.faiss")
 
     with open("chunks.pkl", "rb") as f:
         chunks = pickle.load(f)
 
-    tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-small")
-    model = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-small")
+    return index, chunks
 
-    return embedding_model, index, chunks, tokenizer, model
+# -----------------------------------
+# Load Resources
+# -----------------------------------
+with st.spinner("Loading Sanskrit RAG System..."):
 
+    embedding_model = load_model()
 
-embedding_model, index, chunks, tokenizer, model = load_models()
+    index, chunks = load_data()
 
-# ---------------------------
-# UI
-# ---------------------------
-st.title("📘 Sanskrit RAG System")
+st.success("System Ready")
 
-query = st.text_input("Enter Sanskrit Query:")
+# -----------------------------------
+# User Query
+# -----------------------------------
+query = st.text_input(
+    "Enter Sanskrit Query"
+)
 
-# ---------------------------
-# RAG PIPELINE
-# ---------------------------
-if st.button("Get Answer"):
+# -----------------------------------
+# Search Button
+# -----------------------------------
+if st.button("Search"):
 
-    if not query.strip():
+    if query.strip() == "":
+
         st.warning("Please enter a query")
-        st.stop()
 
-    # -----------------------
-    # RETRIEVAL (IMPROVED)
-    # -----------------------
-    query_vec = embedding_model.encode([query]).astype("float32")
+    else:
 
-    scores, indices = index.search(query_vec, k=3)
+        # -----------------------------------
+        # Clean Query
+        # -----------------------------------
+        query = clean_text(query)
 
-    retrieved_chunks = [chunks[i] for i in indices[0]]
-    context = "\n".join(retrieved_chunks)
+        # -----------------------------------
+        # Query Embedding
+        # -----------------------------------
+        query_embedding = embedding_model.encode([query])
 
-    # -----------------------
-    # DISPLAY CONTEXT
-    # -----------------------
-    st.subheader("Retrieved Context")
-    st.write(context)
+        query_embedding = np.array(
+            query_embedding
+        ).astype("float32")
 
-    # -----------------------
-    # STRICT PROMPT (NO HALLUCINATION)
-    # -----------------------
-    prompt = f"""
-You are a strict Sanskrit question-answering assistant.
+        # -----------------------------------
+        # FAISS Search
+        # -----------------------------------
+        distances, indices = index.search(
+            query_embedding,
+            5
+        )
 
-RULES:
-- Use ONLY the given context
-- Do NOT use outside knowledge
-- If answer is not present, say "उत्तरः न उपलब्धः"
+        retrieved_sentences = []
 
-CONTEXT:
-{context}
+        # -----------------------------------
+        # Extract Relevant Sentences
+        # -----------------------------------
+        for idx in indices[0]:
 
-QUESTION:
-{query}
+            if idx < len(chunks):
 
-FINAL ANSWER in Sanskrit:
-"""
+                chunk = clean_text(chunks[idx])
 
-    # -----------------------
-    # TOKENIZE
-    # -----------------------
-    inputs = tokenizer(
-        prompt,
-        return_tensors="pt",
-        truncation=True,
-        max_length=512
-    )
+                sentences = chunk.split("।")
 
-    # -----------------------
-    # GENERATE ANSWER
-    # -----------------------
-    outputs = model.generate(
-        **inputs,
-        max_new_tokens=80,
-        num_beams=6,
-        do_sample=False,
-        temperature=0.3
-    )
+                for sentence in sentences:
 
-    answer = tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
+                    sentence = sentence.strip()
 
-    # -----------------------
-    # SAFETY FALLBACK
-    # -----------------------
-    if not answer or len(answer) < 2:
-        answer = "उत्तरः न उपलब्धः (No answer found in context)"
+                    if len(sentence) < 10:
+                        continue
 
-    # -----------------------
-    # OUTPUT
-    # -----------------------
-    st.subheader("Generated Answer")
-    st.success(answer)
+                    score = 0
+
+                    for word in query.split():
+
+                        if word in sentence:
+                            score += 1
+
+                    if score > 0:
+
+                        retrieved_sentences.append(
+                            (score, sentence)
+                        )
+
+        # -----------------------------------
+        # Sort by relevance
+        # -----------------------------------
+        retrieved_sentences.sort(
+            reverse=True,
+            key=lambda x: x[0]
+        )
+
+        # -----------------------------------
+        # Top Retrieved Context
+        # -----------------------------------
+        top_sentences = []
+
+        for item in retrieved_sentences[:2]:
+
+            top_sentences.append(
+                item[1] + "।"
+            )
+
+        context = "\n".join(top_sentences)
+
+        # -----------------------------------
+        # Automatic Answer Extraction
+        # -----------------------------------
+        answer = "Answer not found in document."
+
+        best_sentence = ""
+        best_score = 0
+
+        for item in retrieved_sentences:
+
+            score = item[0]
+            sentence = item[1]
+
+            if score > best_score:
+
+                best_score = score
+                best_sentence = sentence
+
+        # -----------------------------------
+        # Final Answer
+        # -----------------------------------
+        if best_sentence != "":
+
+            answer = best_sentence + "।"
+
+        # -----------------------------------
+        # Display Results
+        # -----------------------------------
+        st.subheader("Retrieved Context")
+
+        st.write(context)
+
+        st.subheader("Generated Answer")
+
+        st.success(answer)
