@@ -1,1 +1,7 @@
+The dataset used in this project consists of Sanskrit text extracted from a PDF document. The content includes basic sentences, facts, and simple informational text used for building a question-answering system.
 
+The PDF is processed to extract raw text, which is then split into smaller meaningful chunks. These chunks form the knowledge base for the Retrieval-Augmented Generation (RAG) system.
+
+Each chunk is later converted into vector embeddings and stored in a FAISS index for efficient semantic search during query processing.
+
+This dataset helps the system understand and retrieve relevant Sanskrit context to generate accurate answers.
